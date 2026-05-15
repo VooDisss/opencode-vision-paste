@@ -39,6 +39,18 @@ Priority (first found wins):
 - **Default**: `请用中文详细描述这张图片的内容。{userText}`
 - **Description**: Prompt sent to the vision model. `{userText}` is replaced with the user's original message text. Change this to your preferred language or style.
 
+### `skipIfModelSupportsVision`
+
+- **Type**: `boolean`
+- **Default**: `true`
+- **Description**: When `true`, the plugin does NOT intercept images if the current chat model natively supports image input. This avoids redundant processing when using multimodal models like GPT-4o, Claude 3.5 Sonnet, or Gemini. Set to `false` to force the plugin to process all images regardless.
+
+### `visionModels`
+
+- **Type**: `string[]`
+- **Default**: `[]`
+- **Description**: Additional model ID patterns to treat as vision-capable (case-insensitive substring match). Useful as a fallback if a model doesn't report its capabilities correctly. Example: `["claude", "gemini", "gpt-4o", "qwen-vl"]`
+
 ## Example config
 
 ```jsonc

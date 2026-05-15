@@ -12,16 +12,23 @@ OpenCode plugin: intercept pasted images → local VL API analysis → replace w
 
 `vision-paste.mjs` default exports `async function(input)` that returns a hook object.
 
-## Hook
+## Hooks
 
-`experimental.chat.messages.transform` — intercepts messages before sending to LLM.
+Two hooks are registered:
+
+### `experimental.chat.system.transform`
+Captures the current `model: Model` object (with `capabilities.input.image`) and stores it in a module-level variable. Runs first to let the messages transform hook know whether the current chat model natively supports image input.
+
+### `experimental.chat.messages.transform`
+Main intercept logic. If `skipIfModelSupportsVision` is enabled and the captured model has `capabilities.input.image === true`, this hook returns early without processing images — the LLM handles them natively.
 
 Processing logic:
-1. Find the last `role=user` message
-2. Find image parts: `type:"file"` with `mime.startsWith("image/")`, or `type:"image"`
-3. Decode from data URL → save to `%TMP%/vision-paste/{uuid}.{ext}`
-4. Read file → convert to data URL → POST to VL API
-5. Replace image part with analysis text, preserving user's original message
+1. Check if current model supports vision → skip if so
+2. Find the last `role=user` message
+3. Find image parts: `type:"file"` with `mime.startsWith("image/")`, or `type:"image"`
+4. Decode from data URL → save to `%TMP%/vision-paste/{uuid}.{ext}`
+5. Read file → convert to data URL → POST to VL API
+6. Replace image part with analysis text, preserving user's original message
 
 All images in the message are analyzed (deduped first). Multi-image results are separated by `---` with numbered labels. On API failure, images are removed and an error hint is injected. Temp files >24h are cleaned on startup; files are deleted immediately after processing.
 
@@ -38,7 +45,9 @@ Reads `vision-paste.config.jsonc` (JSONC with stripped `//` and `/* */` comments
   "apiBaseUrl": "http://192.168.9.44:5678/v1",
   "apiModel": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
   "apiKey": "",
-  "promptTemplate": "请用中文详细描述这张图片的内容。{userText}"
+  "promptTemplate": "请用中文详细描述这张图片的内容。{userText}",
+  "skipIfModelSupportsVision": true,
+  "visionModels": []
 }
 ```
 

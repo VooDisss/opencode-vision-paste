@@ -15,11 +15,14 @@ const DEFAULT_CONFIG = {
   apiModel: "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
   apiKey: "",
   promptTemplate: "请用中文详细描述这张图片的内容。{userText}",
+  skipIfModelSupportsVision: true,
+  visionModels: [],
 }
 
 const TEMP_DIR = join(tmpdir(), "vision-paste")
 const MIME_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/bmp": "bmp" }
 const EXT_TO_MIME = Object.fromEntries(Object.entries(MIME_EXT).map(([m, e]) => [e, m]))
+let currentModel = null
 const TIMEOUT_MS = 60_000
 const MAX_AGE_MS = 24 * 60 * 60 * 1000
 function projectConfigPath(directory) {
@@ -150,10 +153,26 @@ export default async function (input) {
   log("INIT", { dir: input.directory, api: cfg.apiBaseUrl, model: cfg.apiModel })
 
   return {
+    "experimental.chat.system.transform": async (input) => {
+      currentModel = input.model
+      log("MODEL", { id: currentModel?.id, providerID: currentModel?.providerID, imageCapability: currentModel?.capabilities?.input?.image })
+    },
     "experimental.chat.messages.transform": async (_in, output) => {
       const tHook = performance.now()
       const msgs = output.messages
       log("HOOK", { msgCount: msgs.length })
+
+      // Skip if current model natively supports image input
+      if (cfg.skipIfModelSupportsVision && currentModel) {
+        const modelId = (currentModel.id || "").toLowerCase()
+        if (
+          currentModel.capabilities?.input?.image ||
+          cfg.visionModels.some(p => modelId.includes(p.toLowerCase()))
+        ) {
+          log("SKIP", { model: currentModel.id, reason: "model supports vision natively" })
+          return
+        }
+      }
 
       const userMessages = []
       for (let i = 0; i < msgs.length; i++) {

@@ -29,6 +29,7 @@ No cloud dependencies. No API keys required. Your images stay local.
 - **Local-first** — works with any OpenAI-compatible VL API (llama.cpp, vLLM, etc.)
 - **Smart caching** — reuses analysis results for duplicate images across conversation turns
 - **HTTP & data URLs** — handles both pasted images (data: URLs) and web-hosted images
+- **Smart skip** — automatically detects when the current chat model natively supports images and skips interception
 
 ## Installation
 
@@ -69,6 +70,8 @@ All settings are optional. The plugin works with sensible defaults.
 | `apiModel` | `Qwen3VL-8B-Instruct-Q4_K_M.gguf` | Model name for the VL API |
 | `apiKey` | `""` | API key (leave empty if not required) |
 | `promptTemplate` | `请用中文详细描述这张图片的内容。{userText}` | Prompt sent to the VL model; `{userText}` is replaced with the user's original message |
+| `skipIfModelSupportsVision` | `true` | Skip interception when the current chat model natively supports images |
+| `visionModels` | `[]` | Extra model ID patterns to treat as vision-capable (case-insensitive) |
 
 **Config file locations** (first found wins):
 1. `.opencode/vision-paste.config.jsonc` (project-level)
