@@ -1,0 +1,33 @@
+{
+  "name": "opencode-vision-paste",
+  "version": "0.1.0",
+  "description": "OpenCode plugin: intercept pasted images → local VL API analysis → replace with text",
+  "type": "module",
+  "main": "vision-paste.mjs",
+  "files": ["vision-paste.mjs"],
+  "engines": {
+    "opencode": ">=0.1.0"
+  },
+  "scripts": {
+    "test": "node --check vision-paste.mjs"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "vision",
+    "qwen-vl",
+    "image-analysis",
+    "vl",
+    "multimodal"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/opencode-vision-paste.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/opencode-vision-paste/issues"
+  },
+  "homepage": "https://github.com/your-username/opencode-vision-paste#readme",
+  "author": ""
+}
