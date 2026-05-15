@@ -1,0 +1,8 @@
+{
+  "apiBaseUrl": "http://localhost:11434/v1",
+  "apiModel": "qwen2.5-vl:7b",
+  "apiKey": "",
+  "promptLocale": "en",
+  "skipIfModelSupportsVision": true,
+  "visionModels": []
+}

@@ -1,0 +1,15 @@
+services:
+  llama-cpp:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: vision-paste-vl-api
+    ports:
+      - "5678:8080"
+    volumes:
+      - ./models:/models
+    environment:
+      LLAMA_ARG_MODEL: /models/Qwen3VL-8B-Instruct-Q4_K_M.gguf
+      LLAMA_ARG_HOST: 0.0.0.0
+      LLAMA_ARG_PORT: 8080
+      LLAMA_ARG_N_GPU_LAYERS: "99"
+      LLAMA_ARG_CTX_SIZE: "8192"
+    restart: unless-stopped
