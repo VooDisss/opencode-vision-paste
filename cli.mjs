@@ -26,9 +26,13 @@ const DEFAULT_CONFIG = {
   apiBaseUrl: "http://192.168.9.44:5678/v1",
   apiModel: "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
   apiKey: "",
-  promptTemplate: PROMPT_LOCALES.zh,
+  promptTemplate: "",
+  promptLocale: "zh",
   skipIfModelSupportsVision: true,
   visionModels: [],
+  healthCheckOnStart: true,
+  verbose: false,
+  errorHints: true,
 }
 
 function projectConfigPath() {
@@ -197,7 +201,7 @@ program
       printLangOptions()
       const locale = await prompt("\n  Step 4: Prompt language", "zh")
       if (PROMPT_LOCALES[locale]) {
-        cfg.promptTemplate = PROMPT_LOCALES[locale]
+        cfg.promptLocale = locale
       }
 
       // Step 5: Smart skip

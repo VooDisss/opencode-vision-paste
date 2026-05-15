@@ -14,12 +14,25 @@ const DEFAULT_CONFIG = {
   apiBaseUrl: "http://192.168.9.44:5678/v1",
   apiModel: "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
   apiKey: "",
-  promptTemplate: "请用中文详细描述这张图片的内容。{userText}",
+  promptTemplate: "",
+  promptLocale: "zh",
   skipIfModelSupportsVision: true,
   visionModels: [],
   healthCheckOnStart: true,
   verbose: false,
   errorHints: true,
+}
+
+const PROMPT_LOCALES = {
+  en: "Describe this image in detail. {userText}",
+  zh: "请用中文详细描述这张图片的内容。{userText}",
+  ja: "この画像の内容を詳しく説明してください。{userText}",
+  ko: "이 이미지의 내용을 자세히 설명해 주세요. {userText}",
+  es: "Describe esta imagen en detalle. {userText}",
+  fr: "Décris cette image en détail. {userText}",
+  de: "Beschreibe dieses Bild im Detail. {userText}",
+  ru: "Подробно опиши это изображение. {userText}",
+  pt: "Descreva esta imagem em detalhes. {userText}",
 }
 
 const TEMP_DIR = join(tmpdir(), "vision-paste")
@@ -58,6 +71,11 @@ async function loadConfig(directory) {
   }
 
   return { ...DEFAULT_CONFIG }
+}
+
+function resolvePrompt(cfg) {
+  if (cfg.promptTemplate) return cfg.promptTemplate
+  return PROMPT_LOCALES[cfg.promptLocale] || PROMPT_LOCALES.zh
 }
 
 function stripJsoncComments(text) {
@@ -112,7 +130,7 @@ async function callVisionAPI(imagePath, userText, cfg) {
   log("API.encode", { ms: (performance.now() - t0).toFixed(1), b64len: b64.length })
 
   const userTextSuffix = userText ? `\n\n此外，用户还问了以下问题，请根据图片内容直接回答：${userText}` : ""
-  const promptText = cfg.promptTemplate.replace("{userText}", userTextSuffix)
+  const promptText = resolvePrompt(cfg).replace("{userText}", userTextSuffix)
 
   const body = {
     model: cfg.apiModel,
@@ -151,6 +169,34 @@ async function callVisionAPI(imagePath, userText, cfg) {
   const result = data2.choices?.[0]?.message?.content ?? "(no response)"
   log("API.done", { totalMs: (performance.now() - t0).toFixed(1) })
   return result
+}
+
+function classifyError(e, cfg) {
+  const code = e.cause?.code || e.code || ""
+  const name = e.name || ""
+  if (code === "ECONNREFUSED" || code === "ENOTFOUND") return {
+    cause: `VL API at ${cfg.apiBaseUrl} is not reachable`,
+    fix: "Make sure your VL API server is running. Try: npx opencode-vision-paste doctor"
+  }
+  if (code === "ETIMEDOUT" || name === "AbortError" || name === "TimeoutError") return {
+    cause: `VL API timed out after ${60}s`,
+    fix: "Check network latency or increase timeout. Verify apiBaseUrl is correct."
+  }
+  const msg = e.message || ""
+  const status = e.status || (msg.match(/vision API (\d+)/) ? parseInt(msg.match(/vision API (\d+)/)[1]) : null)
+  if (status === 401 || status === 403) return {
+    cause: `VL API returned ${status} (unauthorized)`,
+    fix: "Check apiKey in vision-paste.config.jsonc. Run: npx opencode-vision-paste config"
+  }
+  if (status === 404) return {
+    cause: `VL API returned 404 — endpoint not found at ${cfg.apiBaseUrl}`,
+    fix: "The URL should end with /v1 for OpenAI-compatible APIs. Check apiBaseUrl in config."
+  }
+  if (status === 400 || msg.includes("model")) return {
+    cause: `VL API error: ${msg}`,
+    fix: `Verify apiModel "${cfg.apiModel}" is loaded on the server. Run: npx opencode-vision-paste doctor`
+  }
+  return { cause: e.message || "Unknown error", fix: "Run `npx opencode-vision-paste doctor` to diagnose" }
 }
 
 export default async function (input) {
@@ -270,12 +316,18 @@ export default async function (input) {
         log("DONE replaced", { totalMs: (performance.now() - tHook).toFixed(1) })
       } catch (e) {
         log("API_ERR", { totalMs: (performance.now() - tHook).toFixed(1), message: e.message, code: e.code, cause: e.cause?.message, name: e.name, constructor: e.constructor?.name })
+
+        const err = cfg.errorHints !== false ? classifyError(e, cfg) : { cause: e.message, fix: "" }
+        const errorText = err.fix
+          ? `[图片分析失败]\n原因：${err.cause}\n建议：${err.fix}`
+          : `[图片分析失败] ${err.cause}`
+
         const newParts = userMsg.parts.filter(p => !isImageFile(p))
         const textIdx = newParts.findIndex((p) => p.type === "text")
         if (textIdx === -1) {
-          newParts.push({ type: "text", text: `[图片分析失败：${e.message}]` })
+          newParts.push({ type: "text", text: errorText })
         } else {
-          newParts[textIdx] = { ...newParts[textIdx], text: `${newParts[textIdx].text}\n\n[图片分析失败：${e.message}]` }
+          newParts[textIdx] = { ...newParts[textIdx], text: `${newParts[textIdx].text}\n\n${errorText}` }
         }
         msgs[last.idx] = { ...userMsg, parts: newParts }
         log("API_FALLBACK", { totalMs: (performance.now() - tHook).toFixed(1) })
