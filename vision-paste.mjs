@@ -17,12 +17,18 @@ const DEFAULT_CONFIG = {
   promptTemplate: "请用中文详细描述这张图片的内容。{userText}",
   skipIfModelSupportsVision: true,
   visionModels: [],
+  healthCheckOnStart: true,
+  verbose: false,
+  errorHints: true,
 }
 
 const TEMP_DIR = join(tmpdir(), "vision-paste")
 const MIME_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/bmp": "bmp" }
 const EXT_TO_MIME = Object.fromEntries(Object.entries(MIME_EXT).map(([m, e]) => [e, m]))
 let currentModel = null
+let healthChecked = false
+let apiUnreachable = false
+let healthWarnInjected = false
 const TIMEOUT_MS = 60_000
 const MAX_AGE_MS = 24 * 60 * 60 * 1000
 function projectConfigPath(directory) {
@@ -153,6 +159,20 @@ export default async function (input) {
   log("INIT", { dir: input.directory, api: cfg.apiBaseUrl, model: cfg.apiModel })
 
   return {
+    async event({ event }) {
+      if (!cfg.healthCheckOnStart || event.type !== "session.created") return
+      if (healthChecked) return
+      healthChecked = true
+      try {
+        const url = cfg.apiBaseUrl.replace(/\/+$/, "") + "/models"
+        const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+        if (!res.ok) { apiUnreachable = true; log("HEALTH", { status: res.status }) }
+        else log("HEALTH", { status: "ok" })
+      } catch (e) {
+        apiUnreachable = true
+        log("HEALTH", { error: e.message })
+      }
+    },
     "experimental.chat.system.transform": async (input) => {
       currentModel = input.model
       log("MODEL", { id: currentModel?.id, providerID: currentModel?.providerID, imageCapability: currentModel?.capabilities?.input?.image })
@@ -171,6 +191,18 @@ export default async function (input) {
         ) {
           log("SKIP", { model: currentModel.id, reason: "model supports vision natively" })
           return
+        }
+      }
+
+      // Health check warning — inject once if VL API was unreachable at startup
+      if (cfg.healthCheckOnStart && apiUnreachable && !healthWarnInjected) {
+        healthWarnInjected = true
+        const lastUser = msgs.filter(m => m.info?.role === "user").pop()
+        if (lastUser) {
+          const parts = [...lastUser.parts]
+          parts.push({ type: "text", text: `\n[opencode-vision-paste] VL API (${cfg.apiBaseUrl}) is unreachable. Images will not be analyzed. Run \`npx opencode-vision-paste doctor\` to diagnose.` })
+          const idx = msgs.indexOf(lastUser)
+          msgs[idx] = { ...lastUser, parts }
         }
       }
 

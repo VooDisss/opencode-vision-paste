@@ -51,6 +51,24 @@ Priority (first found wins):
 - **Default**: `[]`
 - **Description**: Additional model ID patterns to treat as vision-capable (case-insensitive substring match). Useful as a fallback if a model doesn't report its capabilities correctly. Example: `["claude", "gemini", "gpt-4o", "qwen-vl"]`
 
+### `healthCheckOnStart`
+
+- **Type**: `boolean`
+- **Default**: `true`
+- **Description**: When `true`, the plugin pings the VL API at session start. If unreachable, a warning is injected into the first chat message, alerting the user that images will not be analyzed.
+
+### `verbose`
+
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: When `true`, the plugin injects analysis progress messages into the chat (e.g., "Analyzing image..."). Useful for understanding what the plugin is doing.
+
+### `errorHints`
+
+- **Type**: `boolean`
+- **Default**: `true`
+- **Description**: When `true`, API errors include troubleshooting suggestions (e.g., "Check apiBaseUrl" or "Run doctor to diagnose"). Set to `false` for minimal error messages.
+
 ## Example config
 
 ```jsonc
