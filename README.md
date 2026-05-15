@@ -69,9 +69,13 @@ All settings are optional. The plugin works with sensible defaults.
 | `apiBaseUrl` | `http://192.168.9.44:5678/v1` | OpenAI-compatible VL API endpoint |
 | `apiModel` | `Qwen3VL-8B-Instruct-Q4_K_M.gguf` | Model name for the VL API |
 | `apiKey` | `""` | API key (leave empty if not required) |
-| `promptTemplate` | `请用中文详细描述这张图片的内容。{userText}` | Prompt sent to the VL model; `{userText}` is replaced with the user's original message |
+| `promptTemplate` | `""` | Custom prompt (overrides `promptLocale`); `{userText}` is replaced with the user's message |
+| `promptLocale` | `zh` | Built-in prompt language: `en`, `zh`, `ja`, `ko`, `es`, `fr`, `de`, `ru`, `pt` |
 | `skipIfModelSupportsVision` | `true` | Skip interception when the current chat model natively supports images |
 | `visionModels` | `[]` | Extra model ID patterns to treat as vision-capable (case-insensitive) |
+| `healthCheckOnStart` | `true` | Ping VL API on session start; warn if unreachable |
+| `verbose` | `false` | Show analysis progress in chat messages |
+| `errorHints` | `true` | Include troubleshooting suggestions in error messages |
 
 **Config file locations** (first found wins):
 1. `.opencode/vision-paste.config.jsonc` (project-level)
@@ -101,24 +105,55 @@ The plugin hooks into OpenCode's `experimental.chat.messages.transform` pipeline
 
 ---
 
-## Development
+## VL API Setup
 
-```
-npm test    # syntax check
-npm pack    # build the package locally
-```
+The plugin needs a running VL API. Choose one:
 
-The plugin is a single file (`vision-paste.mjs`). No build step. Edit and reload.
+### Docker (one command)
 
-To test locally, add it to your `.opencode/opencode.jsonc`:
+```bash
+# 1. Download the model
+mkdir models
+wget -P models https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen3VL-8B-Instruct-Q4_K_M.gguf
 
-```jsonc
-{
-  "plugin": ["./path/to/vision-paste.mjs"]
-}
+# 2. Start the server
+docker compose up -d
 ```
 
-Then restart OpenCode or use `/model` to trigger a reload.
+### Ollama
+
+```bash
+ollama pull qwen2.5-vl:7b
+# Then configure apiBaseUrl: http://localhost:11434/v1
+```
+
+See [examples/](examples/) for configuration presets.
+
+---
+
+## CLI
+
+```
+npx opencode-vision-paste init     # Interactive setup wizard
+npx opencode-vision-paste doctor   # Diagnose plugin + VL API
+npx opencode-vision-paste config   # Show current configuration
+```
+
+---
+
+## FAQ
+
+**Q: Images are not being analyzed?**
+Run `npx opencode-vision-paste doctor` to check your setup. Common issues: VL API not running, wrong URL, or model not loaded.
+
+**Q: How do I use a different VL API backend?**
+Update `apiBaseUrl` in `.opencode/vision-paste.config.jsonc`. Any OpenAI-compatible endpoint works (Ollama, vLLM, llama.cpp, LM Studio, etc.).
+
+**Q: Can I force the plugin to always process images?**
+Set `"skipIfModelSupportsVision": false` in your config.
+
+**Q: The prompt is in Chinese, can I change it?**
+Set `"promptLocale": "en"` or provide a custom `"promptTemplate"`.
 
 ---
 
