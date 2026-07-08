@@ -73,9 +73,11 @@ All settings are optional. The plugin works with sensible defaults.
 | `promptLocale` | `zh` | Built-in prompt language: `en`, `zh`, `ja`, `ko`, `es`, `fr`, `de`, `ru`, `pt` |
 | `skipIfModelSupportsVision` | `true` | Skip interception when the current chat model natively supports images |
 | `visionModels` | `[]` | Extra model ID patterns to treat as vision-capable (case-insensitive) |
+| `transcribeModels` | `[]` | Model ID patterns to always transcribe, even if they report vision support (e.g., `["deepseek"]`) |
 | `healthCheckOnStart` | `true` | Ping VL API on session start; warn if unreachable |
 | `verbose` | `false` | Show analysis progress in chat messages |
 | `errorHints` | `true` | Include troubleshooting suggestions in error messages |
+| `maxTokens` | `2048` | Max tokens per image for the VL API (0 = no limit) |
 
 **Config file locations** (first found wins):
 1. `.opencode/vision-paste.config.jsonc` (project-level)

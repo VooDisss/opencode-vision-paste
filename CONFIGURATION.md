@@ -57,6 +57,16 @@ Priority (first found wins):
 - **Default**: `[]`
 - **Description**: Additional model ID patterns to treat as vision-capable (case-insensitive substring match). Useful as a fallback if a model doesn't report its capabilities correctly. Example: `["claude", "gemini", "gpt-4o", "qwen-vl"]`
 
+### `transcribeModels`
+
+- **Type**: `string[]`
+- **Default**: `[]`
+- **Description**: Model ID patterns that should ALWAYS be transcribed by the plugin, even if they report image support. This is useful when `skipIfModelSupportsVision` is enabled and a model claims image capability but you want the plugin to handle transcription instead — for example, a text-only model that has been declared as vision-capable in `opencode.json` to bypass OpenCode's `unsupportedParts` filter.
+
+  The plugin registers itself in the `experimental.chat.messages.transform` hook, which runs **before** the unsupported-parts check. Since the plugin replaces all images with transcribed text across every user message in the conversation, the downstream filter never encounters raw image parts. No modality override or source modification is needed for the plugin to function correctly.
+
+  Example: `["deepseek"]`
+
 ### `healthCheckOnStart`
 
 - **Type**: `boolean`
@@ -74,6 +84,12 @@ Priority (first found wins):
 - **Type**: `boolean`
 - **Default**: `true`
 - **Description**: When `true`, API errors include troubleshooting suggestions (e.g., "Check apiBaseUrl" or "Run doctor to diagnose"). Set to `false` for minimal error messages.
+
+### `maxTokens`
+
+- **Type**: `number`
+- **Default**: `2048`
+- **Description**: Maximum number of tokens the VL API may generate per image. Limits response length and prevents timeout on verbose models. Set to `0` for no limit (the API default).
 
 ## Example config
 

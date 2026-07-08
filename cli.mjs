@@ -30,6 +30,8 @@ const DEFAULT_CONFIG = {
   promptLocale: "zh",
   skipIfModelSupportsVision: true,
   visionModels: [],
+  transcribeModels: [],
+  maxTokens: 2048,
   healthCheckOnStart: true,
   verbose: false,
   errorHints: true,

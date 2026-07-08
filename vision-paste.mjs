@@ -18,7 +18,9 @@ const DEFAULT_CONFIG = {
   promptLocale: "zh",
   skipIfModelSupportsVision: true,
   visionModels: [],
+  transcribeModels: [],
   healthCheckOnStart: true,
+  maxTokens: 2048,
   verbose: false,
   errorHints: true,
 }
@@ -35,6 +37,33 @@ const PROMPT_LOCALES = {
   pt: "Descreva esta imagem em detalhes. {userText}",
 }
 
+const RESPONSE_LOCALES = {
+  en: "User question: {userText}\n\nPlease answer the user's question based on the above information.",
+  zh: "用户问题：{userText}\n\n请基于以上信息回答用户的问题。",
+  ja: "ユーザーの質問：{userText}\n\n上記の情報に基づいてユーザーの質問に答えてください。",
+  ko: "사용자 질문: {userText}\n\n위 정보를 바탕으로 사용자의 질문에 답변해 주세요.",
+  es: "Pregunta del usuario: {userText}\n\nResponde a la pregunta del usuario basándote en la información anterior.",
+  fr: "Question de l'utilisateur : {userText}\n\nVeuillez répondre à la question de l'utilisateur sur la base des informations ci-dessus.",
+  de: "Frage des Benutzers: {userText}\n\nBitte beantworten Sie die Frage des Benutzers auf der Grundlage der obigen Informationen.",
+  ru: "Вопрос пользователя: {userText}\n\nПожалуйста, ответьте на вопрос пользователя на основе приведенной выше информации.",
+  pt: "Pergunta do usuário: {userText}\n\nPor favor, responda à pergunta do usuário com base nas informações acima.",
+}
+
+const ERROR_LOCALES = {
+  en: { prefix: "Image analysis failed", reason: "Reason", suggestion: "Suggestion" },
+  zh: { prefix: "图片分析失败", reason: "原因", suggestion: "建议" },
+  ja: { prefix: "画像分析失敗", reason: "理由", suggestion: "提案" },
+  ko: { prefix: "이미지 분석 실패", reason: "이유", suggestion: "제안" },
+  es: { prefix: "Error al analizar la imagen", reason: "Motivo", suggestion: "Sugerencia" },
+  fr: { prefix: "Échec de l'analyse d'image", reason: "Raison", suggestion: "Suggestion" },
+  de: { prefix: "Bildanalyse fehlgeschlagen", reason: "Grund", suggestion: "Vorschlag" },
+  ru: { prefix: "Ошибка анализа изображения", reason: "Причина", suggestion: "Предложение" },
+  pt: { prefix: "Falha na análise de imagem", reason: "Motivo", suggestion: "Sugestão" },
+}
+
+const CACHE_MAX = 100
+
+const transcriptionCache = new Map()
 const TEMP_DIR = join(tmpdir(), "vision-paste")
 const MIME_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/bmp": "bmp" }
 const EXT_TO_MIME = Object.fromEntries(Object.entries(MIME_EXT).map(([m, e]) => [e, m]))
@@ -76,6 +105,20 @@ async function loadConfig(directory) {
 function resolvePrompt(cfg) {
   if (cfg.promptTemplate) return cfg.promptTemplate
   return PROMPT_LOCALES[cfg.promptLocale] || PROMPT_LOCALES.zh
+}
+
+function resolveResponseText(cfg, userText) {
+  if (!userText) return ""
+  const tmpl = RESPONSE_LOCALES[cfg.promptLocale] || RESPONSE_LOCALES.zh
+  return tmpl.replace("{userText}", userText)
+}
+
+function cacheSet(url, value) {
+  if (transcriptionCache.size >= CACHE_MAX) {
+    const oldest = transcriptionCache.keys().next().value
+    if (oldest !== undefined) transcriptionCache.delete(oldest)
+  }
+  transcriptionCache.set(url, value)
 }
 
 function stripJsoncComments(text) {
@@ -134,6 +177,7 @@ async function callVisionAPI(imagePath, userText, cfg) {
 
   const body = {
     model: cfg.apiModel,
+    max_tokens: cfg.maxTokens ?? 2048,
     messages: [
       {
         role: "user",
@@ -228,15 +272,20 @@ export default async function (input) {
       const msgs = output.messages
       log("HOOK", { msgCount: msgs.length })
 
-      // Skip if current model natively supports image input
-      if (cfg.skipIfModelSupportsVision && currentModel) {
+      // Always transcribe for text-only models in transcribeModels list
+      if (currentModel) {
         const modelId = (currentModel.id || "").toLowerCase()
-        if (
-          currentModel.capabilities?.input?.image ||
-          cfg.visionModels.some(p => modelId.includes(p.toLowerCase()))
-        ) {
-          log("SKIP", { model: currentModel.id, reason: "model supports vision natively" })
-          return
+        const isTextOnly = cfg.transcribeModels?.some(p => modelId.includes(p.toLowerCase()))
+        if (isTextOnly) {
+          log("ALWAYS_TRANSCRIBE", { model: currentModel.id })
+        } else if (cfg.skipIfModelSupportsVision) {
+          if (
+            currentModel.capabilities?.input?.image ||
+            cfg.visionModels.some(p => modelId.includes(p.toLowerCase()))
+          ) {
+            log("SKIP", { model: currentModel.id, reason: "model supports vision natively" })
+            return
+          }
         }
       }
 
@@ -252,91 +301,108 @@ export default async function (input) {
         }
       }
 
+      // Process ALL user messages' images, not just the last
       const userMessages = []
       for (let i = 0; i < msgs.length; i++) {
         if (msgs[i].info?.role === "user") userMessages.push({ msg: msgs[i], idx: i })
       }
       if (userMessages.length === 0) { log("HOOK exit: no user msg"); return }
 
-      const last = userMessages[userMessages.length - 1]
-      const userMsg = last.msg
-
-      if (!userMsg.parts || userMsg.parts.length === 0) { log("HOOK exit: no parts"); return }
-
-      log("USER_MSG", { role: userMsg.info?.role, partsCount: userMsg.parts.length })
-      for (let i = 0; i < userMsg.parts.length; i++) {
-        const p = userMsg.parts[i]
-        log("PART", { i, type: p.type, mime: p.mime, url: (p.url||"").slice(0,50) })
+      let totalImages = 0
+      for (const { msg } of userMessages) {
+        if (msg.parts) totalImages += msg.parts.filter(isImageFile).length
       }
+      if (totalImages === 0) { log("HOOK exit: no images"); return }
+      log("IMAGES", { total: totalImages, msgCount: userMessages.length })
 
-      const images = userMsg.parts.filter(isImageFile)
-      log("IMAGES", { count: images.length })
-      if (images.length === 0) { log("HOOK exit: no images"); return }
+      const tempFiles = []
 
-      // Dedup images by URL
-      const seen = new Set()
-      const uniqueImages = images.filter(img => {
-        const url = getImageUrl(img)
-        if (!url || seen.has(url)) return false
-        seen.add(url)
-        return true
-      })
-      if (uniqueImages.length < images.length) log("DEDUP", { from: images.length, to: uniqueImages.length })
+      for (const { msg, idx } of userMessages) {
+        if (!msg.parts || msg.parts.length === 0) continue
 
-      const tSave = performance.now()
-      const saved = (await Promise.all(uniqueImages.map(saveImage))).filter(Boolean)
-      log("SAVED", { ms: (performance.now() - tSave).toFixed(1), count: saved.length, paths: saved })
-      if (saved.length === 0) { log("HOOK exit: no saved"); return }
+        const images = msg.parts.filter(isImageFile)
+        if (images.length === 0) continue
 
-      const textPart = userMsg.parts.find((p) => p.type === "text")
-      const userText = textPart?.text ?? ""
+        // Dedup images by URL
+        const seen = new Set()
+        const uniqueImages = images.filter(img => {
+          const url = getImageUrl(img)
+          if (!url || seen.has(url)) return false
+          seen.add(url)
+          return true
+        })
 
-      try {
+        // Check cache and determine which need transcription
+        const toTranscribe = []
         const results = []
-        for (let i = 0; i < saved.length; i++) {
-          log("API_CALL", { i, total: saved.length, imagePath: saved[i] })
-          const tApi = performance.now()
-          const result = await callVisionAPI(saved[i], userText, cfg)
-          log("API_OK", { i, ms: (performance.now() - tApi).toFixed(1), len: result.length, preview: result.slice(0, 80) })
-          results.push(saved.length > 1 ? `[图片 ${i + 1}/${saved.length}]\n${result}` : result)
+        for (const img of uniqueImages) {
+          const url = getImageUrl(img)
+          if (transcriptionCache.has(url)) {
+            results.push(transcriptionCache.get(url))
+          } else {
+            toTranscribe.push(img)
+          }
         }
 
-        const combined = results.join("\n\n---\n\n")
-        const injectedText = userText
-          ? `${combined}\n\n用户问题：${userText}\n\n请基于以上信息回答用户的问题。`
-          : combined
+        // Transcribe uncached images
+        if (toTranscribe.length > 0) {
+          const textPart = msg.parts.find(p => p.type === "text")
+          const userText = textPart?.text ?? ""
+          const saved = (await Promise.all(toTranscribe.map(saveImage))).filter(Boolean)
+          tempFiles.push(...saved)
 
-        // Remove all image parts and inject result as user text
-        const newParts = userMsg.parts.filter(p => !isImageFile(p))
-        const textIdx = newParts.findIndex((p) => p.type === "text")
+          try {
+            for (let i = 0; i < saved.length; i++) {
+              log("API_CALL", { idx, i, total: saved.length, imagePath: saved[i] })
+              const tApi = performance.now()
+              const result = await callVisionAPI(saved[i], userText, cfg)
+              log("API_OK", { idx, i, ms: (performance.now() - tApi).toFixed(1), len: result.length })
+              const imgUrl = getImageUrl(toTranscribe[i])
+              cacheSet(imgUrl, result)
+              results.push(result)
+            }
+          } catch (e) {
+            log("API_ERR", { idx, message: e.message })
+            const el = ERROR_LOCALES[cfg.promptLocale] || ERROR_LOCALES.zh
+            const err = cfg.errorHints !== false ? classifyError(e, cfg) : { cause: e.message, fix: "" }
+            const errorText = err.fix
+              ? `[${el.prefix}]\n${el.reason}: ${err.cause}\n${el.suggestion}: ${err.fix}`
+              : `[${el.prefix}] ${err.cause}`
+
+            const newParts = msg.parts.filter(p => !isImageFile(p))
+            const textIdx = newParts.findIndex(p => p.type === "text")
+            if (textIdx === -1) {
+              newParts.push({ type: "text", text: errorText })
+            } else {
+              newParts[textIdx] = { ...newParts[textIdx], text: `${newParts[textIdx].text}\n\n${errorText}` }
+            }
+            msgs[idx] = { ...msg, parts: newParts }
+            continue
+          }
+        }
+
+        // Build combined text and replace images in this message
+        const combined = results.join("\n\n---\n\n")
+        const textPart = msg.parts.find(p => p.type === "text")
+        const userText = textPart?.text ?? ""
+        const suffix = resolveResponseText(cfg, userText)
+        const injectedText = suffix ? `${combined}\n\n${suffix}` : combined
+
+        const newParts = msg.parts.filter(p => !isImageFile(p))
+        const textIdx = newParts.findIndex(p => p.type === "text")
         if (textIdx !== -1) {
           newParts[textIdx] = { ...newParts[textIdx], text: injectedText }
         } else {
           newParts.push({ type: "text", text: injectedText })
         }
-        msgs[last.idx] = { ...userMsg, parts: newParts }
-        log("DONE replaced", { totalMs: (performance.now() - tHook).toFixed(1) })
-      } catch (e) {
-        log("API_ERR", { totalMs: (performance.now() - tHook).toFixed(1), message: e.message, code: e.code, cause: e.cause?.message, name: e.name, constructor: e.constructor?.name })
+        msgs[idx] = { ...msg, parts: newParts }
+        log("DONE replaced", { idx, totalMs: (performance.now() - tHook).toFixed(1) })
+      }
 
-        const err = cfg.errorHints !== false ? classifyError(e, cfg) : { cause: e.message, fix: "" }
-        const errorText = err.fix
-          ? `[图片分析失败]\n原因：${err.cause}\n建议：${err.fix}`
-          : `[图片分析失败] ${err.cause}`
-
-        const newParts = userMsg.parts.filter(p => !isImageFile(p))
-        const textIdx = newParts.findIndex((p) => p.type === "text")
-        if (textIdx === -1) {
-          newParts.push({ type: "text", text: errorText })
-        } else {
-          newParts[textIdx] = { ...newParts[textIdx], text: `${newParts[textIdx].text}\n\n${errorText}` }
-        }
-        msgs[last.idx] = { ...userMsg, parts: newParts }
-        log("API_FALLBACK", { totalMs: (performance.now() - tHook).toFixed(1) })
-      } finally {
-        const tClean = performance.now()
-        await Promise.all(saved.map(fp => unlink(fp).catch(() => {})))
-        log("CLEANUP", { ms: (performance.now() - tClean).toFixed(1) })
+      // Cleanup temp files
+      if (tempFiles.length > 0) {
+        await Promise.all(tempFiles.map(fp => unlink(fp).catch(() => {})))
+        log("CLEANUP", { count: tempFiles.length })
       }
     },
   }
