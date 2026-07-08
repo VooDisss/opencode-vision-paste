@@ -61,6 +61,12 @@ const ERROR_LOCALES = {
   pt: { prefix: "Falha na análise de imagem", reason: "Motivo", suggestion: "Sugestão" },
 }
 
+const IMAGE_LABEL_LOCALES = {
+  en: "Image", zh: "图片", ja: "画像", ko: "이미지",
+  es: "Imagen", fr: "Image", de: "Bild",
+  ru: "Изображение", pt: "Imagem",
+}
+
 const CACHE_MAX = 100
 
 const transcriptionCache = new Map()
@@ -381,8 +387,9 @@ export default async function (input) {
           }
         }
 
-        // Build combined text and replace images in this message
-        const combined = results.join("\n\n---\n\n")
+        // Build combined text with numbered labels for multi-image messages
+        const imgLabel = IMAGE_LABEL_LOCALES[cfg.promptLocale] || IMAGE_LABEL_LOCALES.zh
+        const combined = results.map((r, i) => `[${imgLabel} ${i + 1}/${results.length}]\n${r}`).join("\n\n---\n\n")
         const textPart = msg.parts.find(p => p.type === "text")
         const userText = textPart?.text ?? ""
         const suffix = resolveResponseText(cfg, userText)
